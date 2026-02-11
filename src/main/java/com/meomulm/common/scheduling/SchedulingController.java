@@ -47,7 +47,7 @@ public class SchedulingController {
         log.info("==== 체크아웃 자동 알림 스케줄러 종료 ====");
     }
 
-    @Scheduled(cron = "0 53 15 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 2 16 * * *", zone = "Asia/Seoul")
     public void CheckInNotification() {
         String nowTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
         log.info("==== 체크인 자동 알림 스케줄러 시작 [{}] ====", nowTime);
