@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.meomulm.accommodation.model.mapper.AccommodationMapper">
+    <!-- 숙소 아이디로 숙소 이미지 1개 반환 -->
+    <select id="selectAccommodationImageById" resultType="AccommodationImage">
+        SELECT *
+        FROM accommodation_image
+        WHERE accommodation_id = #{accommodationId}
+            LIMIT 1;
+    </select>
+
+
+    <!-- 숙소 아이디를 기반으로 이미지 리스트 반환 -->
+    <select id="selectAccommodationImagesById" resultType="AccommodationImage">
+        SELECT accommodation_image_url
+        FROM accommodation_image
+        WHERE accommodation_id = #{accommodationId}
+    </select>
+
+
+    <!-- 돋보기 검색 - 숙소명, 지역명으로 숙소 검색 -->
+    <select id="selectAccommodationByKeyword" resultType="SearchAccommodationResponse" parameterType="String">
+        SELECT *
+        FROM vw_searchpage_accommodation
+        WHERE accommodation_name ILIKE '%' || #{keyword} || '%'
+           OR accommodation_address ILIKE '%' || #{keyword} || '%'
+    </select>
+
+
+    <!-- 키워드, 위도/경도, 필터 조회  -->
+    <!-- 기존 lastIndex는 건너뛰고, 다음 limit 조회 -->
+    <select id="selectAccommodations" resultType="SearchAccommodationResponse" parameterType="SearchAccommodationRequest">
+        SELECT
+        a.accommodation_id,
+        a.accommodation_name,
+        a.accommodation_address,
+        a.accommodation_latitude,
+        a.accommodation_longitude,
+        c.category_code,
+        p_sub.min_price,                                -- 숙소별 객실 최저가
+        COALESCE(r_sub.avg_rating, 0) AS avg_rating,    -- 숙소별 평점
+        COALESCE(r_sub.review_count, 0) AS review_count -- 숙소별 리뷰수
+        FROM accommodation a
+        LEFT JOIN category c ON a.category_id = c.category_id
+        LEFT JOIN accommodation_facility f ON a.accommodation_id = f.accommodation_id
+        -- 숙소별 객실 인원수 수용 여부 및 최저가
+        INNER JOIN (
+        SELECT accommodation_id, MIN(product_price) AS min_price
+        FROM product
+        where product_maximum_number >= #{guestNumber}
+        GROUP BY accommodation_id
+        ) p_sub ON a.accommodation_id = p_sub.accommodation_id
+        -- 숙소별 리뷰 통계
+        LEFT JOIN (
+        SELECT
+        accommodation_id,
+        AVG(rating) AS avg_rating,
+        COUNT(review_id) AS review_count
+        FROM review
+        GROUP BY accommodation_id
+        ) r_sub ON a.accommodation_id = r_sub.accommodation_id
+        <where>
+            <if test="keyword != null and keyword != ''">
+                AND (a.accommodation_name ILIKE '%' || #{keyword} || '%'
+                OR a.accommodation_address ILIKE '%' || #{keyword} || '%')
+            </if>
+            <if test="latitude != null and longitude != null">
+                AND a.accommodation_latitude IS NOT NULL
+                AND a.accommodation_longitude IS NOT NULL
+                AND (
+                6371 * acos(
+                cos(radians(#{latitude}))
+                * cos(radians(a.accommodation_latitude::DOUBLE PRECISION))
+                * cos(radians(a.accommodation_longitude::DOUBLE PRECISION) - radians(#{longitude}))
+                + sin(radians(#{latitude}))
+                * sin(radians(a.accommodation_latitude::DOUBLE PRECISION))
+                )
+                ) &lt;= 5
+            </if>
+            <if test="minPrice != null and minPrice > 0">
+                AND p_sub.min_price >= #{minPrice}
+            </if>
+            <if test="maxPrice != null and maxPrice > 0">
+                AND p_sub.min_price &lt;= #{maxPrice}
+            </if>
+            <if test="types != null and !types.isEmpty()">
+                AND c.category_code IN
+                <foreach collection="types" item="type" open="(" separator="," close=")">
+                    #{type}
+                </foreach>
+            </if>
+            <if test="facilities != null and !facilities.isEmpty()">
+                <foreach collection="facilities" item="facility">
+                    AND f.${facility} = true
+                </foreach>
+            </if>
+        </where>
+        ORDER BY a.accommodation_id DESC
+        <if test="searchLimit != null and lastIndex != null">
+            LIMIT #{searchLimit} OFFSET #{lastIndex}
+        </if>
+    </select>
+
+
+
+    <!-- 최근 본 숙소 조회 (ID 리스트 기반) -->
+    <select id="selectRecentAccommodations"
+            parameterType="list"
+            resultType="SearchAccommodationResponse">
+
+        SELECT *
+        FROM vw_searchpage_accommodation
+        WHERE accommodation_id IN
+        <foreach collection="list"
+                 item="id"
+                 open="("
+                 separator=","
+                 close=")">
+            #{id}
+        </foreach>
+        ORDER BY accommodation_id DESC
+    </select>
+
+
+    <!-- 지역 별 가격 낮은 순(평점 높은 순x)으로 12개 -->
+    <select id="selectAccommodationPopularByAddress" resultType="SearchAccommodationResponse">
+        SELECT *
+        FROM vw_searchpage_accommodation
+        WHERE accommodation_address ILIKE '%' || #{keyword} || '%'
+        ORDER BY min_price
+            LIMIT 12
+    </select>
+
+
+    <!-- 지도 클릭 -> 현재 위치 기반의 반경 5KM 숙소를 지도에 노출 -->
+    <select id="selectAccommodationByLocation" resultType="SearchAccommodationResponse">
+        SELECT *
+        FROM vw_searchpage_accommodation
+        WHERE (
+                  6371 * acos(
+                          cos(radians(#{accommodationLatitude}))
+                              * cos(radians(accommodation_latitude))
+                              * cos(radians(accommodation_longitude) - radians(#{accommodationLongitude}))
+                              + sin(radians(#{accommodationLatitude}))
+                              * sin(radians(accommodation_latitude))
+                         )
+                  ) &lt;= 5
+    </select>
+
+
+    <!-- 숙소 상세 검색 -->
+    <select id="selectAccommodationDetailById" resultType="AccommodationDetail">
+        SELECT *
+        FROM vw_accommodation_detail
+        WHERE accommodation_id = #{accommodationId}
+    </select>
+</mapper>
